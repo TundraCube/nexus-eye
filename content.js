@@ -1,4 +1,4 @@
-console.log("%c [Nexus-Eye] System Live v1.5.3 (The Deep Anchor) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.5.4 (The True Sight Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 const FILE_STATE_MAP = new Map();
@@ -12,7 +12,6 @@ const LINE_SELECTORS = [
   '.blob-code-content'
 ];
 
-// Expanded container selectors to catch the 2026 "Improved" view
 const CONTAINER_SELECTORS = [
   'section[aria-labelledby]',
   'div[data-details-container-group="file"]',
@@ -76,10 +75,7 @@ const nexusScanner = () => {
   if (codeLines.length === 0) return;
 
   codeLines.forEach(line => {
-    // 1. IMPROVED DISCOVERY: Climb up to find any container that looks like a file
     let container = line.closest(CONTAINER_SELECTORS.join(', '));
-    
-    // If that fails, look for the 'file-diff-N' or 'diff-N' ID pattern
     if (!container) {
         let parent = line.parentElement;
         while (parent && parent !== document.body) {
@@ -94,16 +90,23 @@ const nexusScanner = () => {
     const fileId = container?.getAttribute('data-file-path') || 
                    container?.getAttribute('data-path') || 
                    container?.getAttribute('aria-labelledby') || 
-                   container?.id || 
-                   'global-fallback';
+                   container?.id || 'global';
 
     if (!FILE_STATE_MAP.has(fileId)) {
-      FILE_STATE_MAP.set(fileId, { inTemplate: false });
+      FILE_STATE_MAP.set(fileId, { inTemplate: false, skipFile: false });
     }
     const state = FILE_STATE_MAP.get(fileId);
+    if (state.skipFile) return;
 
     const text = line.innerText || line.textContent;
     if (!text) return;
+
+    // 1. INCEPTION GUARD: Skip if this is our own logic or a non-angular file
+    const lowerText = text.toLowerCase();
+    if (text.includes('§§§NEXUS') || (text.includes('highlightEngine') && text.includes('regex'))) {
+        state.skipFile = true;
+        return;
+    }
 
     // 2. DETECTION
     const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
@@ -114,14 +117,20 @@ const nexusScanner = () => {
         (text.includes('`') && !text.includes('template:'))
     );
     const isLogicWall = /^(import|export)\b/.test(text.trim());
+    
+    // 3. TRUE SIGHT HEURISTIC: Discover template mode in partial hunks
+    // Look for clear HTML tags at start of line or Angular patterns
+    const looksLikeTemplate = /^\s*<[a-zA-Z0-9-]+/.test(text) || /^\s*<\/[a-zA-Z0-9-]+/.test(text) || /\[[a-zA-Z0-9.-]+\]=|\{\{.*?\}\}|@(if|for|else)\b/.test(text);
 
-    // 3. STATE UPDATE
-    if (isStart) state.inTemplate = true;
-    if (isLogicWall) state.inTemplate = false;
+    if (isStart || (!state.inTemplate && looksLikeTemplate && !isLogicWall)) {
+        state.inTemplate = true;
+    }
+
+    if (isLogicWall && !looksLikeTemplate) state.inTemplate = false;
 
     // 4. ACTION
     if (state.inTemplate && !line.dataset.nexusDone) {
-        if (isLogicWall) return;
+        if (isLogicWall && !looksLikeTemplate) return;
 
         const highlighted = highlightEngine(text);
         if (highlighted) {
