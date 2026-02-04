@@ -1,10 +1,8 @@
-console.log("%c [Nexus-Eye] System Live v1.4.1 (Atomic Persistence) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.4.2 (The Sequential Sentinel) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
-
-// 1. PERSISTENT STATE: Store template state per file container element
-// Using WeakMap ensures we don't leak memory when GitHub removes files from DOM
-const FILE_STATE_CACHE = new WeakMap();
+let state_inTemplateBlock = false;
+let state_lastFileContainer = null;
 
 const LINE_SELECTORS = [
   '.diff-text-inner', 
@@ -15,24 +13,22 @@ const LINE_SELECTORS = [
   '.blob-code-content'
 ];
 
-const FILE_CONTAINER_SELECTORS = '.file, .blob-wrapper, [data-path], [data-file-path], section[aria-labelledby], .react-blob-view-container';
+// Aggressive container discovery for both PRs and Blobs
+const FILE_CONTAINER_SELECTORS = '.file, .blob-wrapper, section[aria-labelledby], [data-path], [data-file-path], .react-blob-view-container, .js-file';
 
 const highlightEngine = (text) => {
   if (!text) return '';
   const tokens = [];
   let processed = text;
 
-  // PASS 1: Strings
   processed = processed.replace(/("[^"]*"|'[^']*'|`[^`]*`)/g, (match) => {
     const tokenId = `§§§NEXUS_${tokens.length}§§§`;
     tokens.push(`<span class="nexus-val">${match}</span>`);
     return tokenId;
   });
 
-  // PASS 2: Escape
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  // PASS 3: Patterns
   const patterns = [
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
@@ -56,7 +52,6 @@ const highlightEngine = (text) => {
     });
   });
 
-  // PASS 4: Reassemble
   let finalHtml = processed;
   tokens.forEach((tokenHtml, i) => {
     const tokenId = `§§§NEXUS_${i}§§§`;
@@ -72,43 +67,36 @@ const nexusScanner = () => {
   const codeLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
   if (codeLines.length === 0) return;
 
-  // We must process lines sequentially as they appear in the DOM
-  // but maintain separate states for separate files.
-  
-  const currentIterationFileStates = new Map();
-
+  // We process lines in the exact order they appear in the DOM
   codeLines.forEach(line => {
     const text = line.innerText || line.textContent;
     if (!text) return;
 
-    // 1. IDENTIFY FILE
+    // 1. DYNAMIC BOUNDARY CHECK
+    // If the line is within a different file than the last line, reset state
     const container = line.closest(FILE_CONTAINER_SELECTORS);
-    if (!container) return; 
-
-    // Initialize state for this container if not present
-    if (!currentIterationFileStates.has(container)) {
-        currentIterationFileStates.set(container, { inTemplate: false });
+    if (container !== state_lastFileContainer) {
+        state_inTemplateBlock = false;
+        state_lastFileContainer = container;
     }
-    const state = currentIterationFileStates.get(container);
 
     // 2. INCEPTION GUARD
     if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
 
-    // 3. STATE TRIGGERS (Always run to keep the machine synced)
+    // 3. STATE MACHINE TRIGGERS (Must run for every line to track transitions)
     const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
-    
-    // Boundary end: hits class/decorator OR a backtick on a line that isn't the start
-    const isEnd = state.inTemplate && (
+    const isEnd = state_inTemplateBlock && (
         text.includes('@Component') || 
         text.includes('export class') || 
         (text.trim() === '`') || 
         (text.includes('`') && !text.includes('template:'))
     );
 
-    if (isStart) state.inTemplate = true;
+    if (isStart) state_inTemplateBlock = true;
 
-    // 4. ACTION
-    if (state.inTemplate && !line.dataset.nexusDone) {
+    // 4. ACTION (Only if not already done)
+    if (state_inTemplateBlock && !line.dataset.nexusDone) {
+        // Noise guard for imports
         if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
 
         const highlighted = highlightEngine(text);
@@ -119,8 +107,8 @@ const nexusScanner = () => {
         }
     }
 
-    // Must reset AFTER processing the line if it's the end line
-    if (isEnd) state.inTemplate = false;
+    // Reset state after line processing if end reached
+    if (isEnd) state_inTemplateBlock = false;
   });
 };
 
