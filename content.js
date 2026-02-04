@@ -1,19 +1,18 @@
-console.log("%c [Nexus-Eye] System Live v1.3.0 (Omni-View Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.3.1 (Deep Vision Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 
-// 1. VIEW PROFILES: Define how to find code lines in different GitHub views
+// 1. VIEW PROFILES: Definitive selectors for GitHub's evolving DOM
 const VIEW_PROFILES = [
   { name: 'diff', selectors: ['.diff-text-inner', '.react-code-line-contents'] },
-  { name: 'blob', selectors: ['.blob-code-inner', '.react-file-line-contents'] }
+  { name: 'blob', selectors: ['.blob-code-inner', '.react-file-line-contents', '.blob-code-content'] }
 ];
 
-// 2. HIGHLIGHT ENGINE: Pure logic for transforming text to highlighted HTML
 const highlightEngine = (text) => {
   const tokens = [];
   let processed = text;
 
-  // PASS 1: Strings (Raw capture to avoid escaping conflicts)
+  // PASS 1: Strings (Raw capture)
   processed = processed.replace(/("[^"]*"|'[^']*')/g, (match) => {
     const tokenId = `§§§NEXUS_${tokens.length}§§§`;
     tokens.push(`<span class="nexus-val">${match}</span>`);
@@ -60,27 +59,29 @@ const highlightEngine = (text) => {
   return finalHtml;
 };
 
-// 3. SCANNER: The orchestrator that manages DOM traversal and state
 const nexusScanner = () => {
   if (!isEnabled) return;
 
-  // Flatten all selectors from all profiles for broad discovery
   const allSelectors = VIEW_PROFILES.flatMap(p => p.selectors).join(', ');
   const codeLines = document.querySelectorAll(allSelectors);
   
+  if (codeLines.length === 0) return;
+
   let inTemplateBlock = false;
 
   codeLines.forEach(line => {
+    // If GitHub already highlighted this with spans, we need the raw text.
+    // .innerText usually gives clean text even with nested spans.
     const text = line.innerText;
     
-    // State machine triggers
-    if (text.includes('template: `')) {
+    // State machine triggers (Fuzzy match to handle split lines)
+    if (text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'))) {
       inTemplateBlock = true;
       return; 
     }
     
-    if (inTemplateBlock && text.includes('`') && !text.includes('${')) {
-      // Highlight the final line before closing
+    // End check: Backtick not accompanied by template: or ${
+    if (inTemplateBlock && text.includes('`') && !text.includes('template:') && !text.includes('${')) {
       if (!line.dataset.nexusDone) {
         line.innerHTML = highlightEngine(text);
         line.classList.add('nexus-line-v1', 'nexus-text-base');
@@ -98,7 +99,7 @@ const nexusScanner = () => {
   });
 };
 
-// 4. LIFECYCLE: Initialization and event listeners
+// Lifecycle
 chrome.storage.local.get(["enabled"], (result) => {
   isEnabled = result.enabled !== false;
   if (isEnabled) nexusScanner();
@@ -113,3 +114,4 @@ chrome.runtime.onMessage.addListener((message) => {
 
 setInterval(nexusScanner, 1000);
 document.addEventListener('turbo:render', nexusScanner);
+document.addEventListener('pjax:end', nexusScanner); // Legacy GitHub support
