@@ -1,13 +1,29 @@
-console.log("%c [Nexus-Eye] System Live v1.3.4 (True Sight Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.3.5 (Inception Guard) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
+
+// 1. FILE CONTAINERS: Targeting the wrappers for individual files in GitHub views
+const FILE_CONTAINERS = [
+  '.js-file-contents', 
+  '.blob-wrapper', 
+  '[data-test-selector="file-container"]',
+  '.react-blob-view-container'
+];
+
+const LINE_SELECTORS = [
+  '.diff-text-inner', 
+  '.react-code-line-contents',
+  '.blob-code-inner',
+  '.react-file-line-contents',
+  '.react-code-text'
+];
 
 const highlightEngine = (text) => {
   const tokens = [];
   let processed = text;
 
-  // PASS 1: Strings (Capture first)
-  processed = processed.replace(/("[^"]*"|'[^']*')/g, (match) => {
+  // PASS 1: Strings (Using escaped backticks in regex to avoid self-highlighting)
+  processed = processed.replace(/("[^"]*"|'[^']*'|`[^`]*`)/g, (match) => {
     const tokenId = `§§§NEXUS_${tokens.length}§§§`;
     tokens.push(`<span class="nexus-val">${match}</span>`);
     return tokenId;
@@ -50,71 +66,68 @@ const highlightEngine = (text) => {
   return finalHtml;
 };
 
-const highlightTemplates = () => {
+const nexusScanner = () => {
   if (!isEnabled) return;
 
-  // Targeting the primary code line containers across GitHub views
-  const selectors = [
-    '.diff-text-inner', 
-    '.react-code-line-contents',
-    '.blob-code-inner',
-    '.react-file-line-contents',
-    '.react-code-text'
-  ];
+  // FIRST: Find all file containers on the page
+  const containers = document.querySelectorAll(FILE_CONTAINERS.join(', '));
   
-  const codeLines = document.querySelectorAll(selectors.join(', '));
-  let inTemplateBlock = false;
-
-  codeLines.forEach(line => {
-    const text = line.innerText;
+  containers.forEach(container => {
+    // RESET state for every new file container to prevent state leakage
+    let inTemplateBlock = false;
     
-    // START TRIGGER
-    if (text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'))) {
-      inTemplateBlock = true;
-      // Don't skip this line, highlight it too!
-    }
+    // Find all code lines within THIS container
+    const codeLines = container.querySelectorAll(LINE_SELECTORS.join(', '));
     
-    // END TRIGGER (Boundary Guard)
-    if (inTemplateBlock && (text.includes('@Component') || text.includes('export class') || (text.includes('`') && !text.includes('template:')))) {
-       // Highlight this final line before closing
-       if (!line.dataset.nexusDone) {
-          line.innerHTML = highlightEngine(text);
-          line.classList.add('nexus-line-v1', 'nexus-text-base');
-          line.dataset.nexusDone = "true";
-       }
-       inTemplateBlock = false;
-       return;
-    }
+    codeLines.forEach(line => {
+      if (line.dataset.nexusDone) {
+          // If we hit a line already done, we must still respect its state in the machine
+          // for consistency, but we don't re-process it.
+          const text = line.innerText;
+          if (text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'))) inTemplateBlock = true;
+          if (inTemplateBlock && (text.includes('@Component') || text.includes('export class') || (text.includes('`') && !text.includes('template:')))) inTemplateBlock = false;
+          return;
+      }
 
-    // HEURISTIC FALLBACK: If we are in a virtual scroll and missed the start tag,
-    // look for definitive Angular template patterns.
-    const isDefinitiveTemplate = /\[[a-zA-Z0-9.-]+\]=|\([a-zA-Z0-9.-]+\)=|\{\{.*?\}\}|@(if|for|else|switch)\b/.test(text);
+      const text = line.innerText;
 
-    if ((inTemplateBlock || isDefinitiveTemplate) && !line.dataset.nexusDone) {
-      // Final guard: don't highlight imports or standard TS noise
-      if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
+      // GUARD: Inception Guard - Skip if this is our own code being viewed
+      if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
+      
+      // Discovery Triggers
+      const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
+      const isEnd = inTemplateBlock && (text.includes('@Component') || text.includes('export class') || (text.includes('`') && !text.includes('template:')));
+      const isTemplatePattern = /\[[a-zA-Z0-9.-]+\]=|\([a-zA-Z0-9.-]+\)=|\{\{.*?\}\}|@(if|for|else|switch)\b/.test(text);
 
-      line.innerHTML = highlightEngine(text);
-      line.classList.add('nexus-line-v1', 'nexus-text-base');
-      line.dataset.nexusDone = "true";
-    }
+      if (isStart) inTemplateBlock = true;
+
+      if (inTemplateBlock || isTemplatePattern) {
+        if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
+
+        line.innerHTML = highlightEngine(text);
+        line.classList.add('nexus-line-v1', 'nexus-text-base');
+        line.dataset.nexusDone = "true";
+      }
+
+      if (isEnd) inTemplateBlock = false;
+    });
   });
 };
 
 chrome.storage.local.get(["enabled"], (result) => {
   isEnabled = result.enabled !== false;
-  if (isEnabled) highlightTemplates();
+  if (isEnabled) nexusScanner();
 });
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.action === "toggle") {
     isEnabled = message.enabled;
-    if (!isEnabled) location.reload(); else highlightTemplates();
+    if (!isEnabled) location.reload(); else nexusScanner();
   }
 });
 
-setInterval(highlightTemplates, 1000);
-document.addEventListener('turbo:render', highlightTemplates);
+setInterval(nexusScanner, 1000);
+document.addEventListener('turbo:render', nexusScanner);
 
-const observer = new MutationObserver(highlightTemplates);
+const observer = new MutationObserver(nexusScanner);
 observer.observe(document.body, { childList: true, subtree: true });
