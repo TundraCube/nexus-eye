@@ -1,0 +1,35 @@
+/* Nexus-Eye v1.2.4: The Masterwork Theme */
+.nexus-line-v1 {
+  background: rgba(15, 23, 42, 0.4) !important;
+  border-left: 4px solid #3b82f6 !important;
+  padding-left: 8px !important;
+  color: #ffffff !important; /* Human Content: Pure Radiant White */
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace !important;
+}
+
+/* High-Contrast Palette */
+.nexus-tag { color: #a5b4fc !important; font-weight: 700 !important; }      /* Purple */
+.nexus-attr { color: #6ee7b7 !important; }                                /* Emerald */
+.nexus-val { color: #fbbf24 !important; font-weight: 500 !important; }    /* Deep Gold Amber */
+.nexus-binding { color: #f472b6 !important; font-weight: 600 !important; } /* Pink */
+.nexus-signal { color: #93c5fd !important; font-weight: 600 !important; }  /* Light Blue */
+.nexus-control { color: #f87171 !important; font-weight: 900 !important; } /* Red */
+.nexus-key { color: #22d3ee !important; font-weight: 600 !important; }     /* Cyan */
+.nexus-tick { color: #fb923c !important; font-weight: bold !important; }   /* Orange */
+
+/* Muted Comments */
+.nexus-comment {
+  color: #475569 !important; /* Dark Slate for Comments */
+  font-style: italic !important;
+}
+
+/* Inner Text (The Primary Content) */
+.nexus-text-base {
+  color: #ffffff !important; /* Pure Radiant White for "Human" text */
+  text-shadow: 0 0 1px rgba(255,255,255,0.2);
+}
+
+.nexus-line-v1 span {
+  display: inline !important;
+  text-shadow: 0 0 2px rgba(0,0,0,0.3);
+}

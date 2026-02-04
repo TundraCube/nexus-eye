@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Nexus-Eye",
+  "version": "1.2.6",
+  "description": "Industrial-grade syntax highlighting for Angular inline templates on GitHub.",
+  "permissions": ["activeTab", "storage"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Toggle Nexus-Eye",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["content.js"],
+      "css": ["nexus-eye.css"]
+    }
+  ]
+}
