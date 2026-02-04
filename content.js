@@ -1,4 +1,4 @@
-console.log("%c [Nexus-Eye] System Live v1.4.9 (Grouped Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.5.0 (The Path Sentinel) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 
@@ -11,15 +11,14 @@ const LINE_SELECTORS = [
   '.blob-code-content'
 ];
 
-const FILE_CONTAINER_SELECTORS = [
+const CONTAINER_SELECTORS = [
   '.file', 
   '.js-file',
   '.blob-wrapper', 
   'section[aria-labelledby]', 
   '[data-path]', 
   '[data-file-path]', 
-  '.react-blob-view-container',
-  '.js-file-contents'
+  '.react-blob-view-container'
 ];
 
 const highlightEngine = (text) => {
@@ -36,14 +35,14 @@ const highlightEngine = (text) => {
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const patterns = [
-    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
-    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
     { regex: /((?<=@if|@for|@switch|@defer|@loading|@placeholder|@error)\s*)(\()/g, class: 'nexus-control' },
     { regex: /(\)\s*\{)/g, class: 'nexus-control' },
     { regex: /([\{\}])/g, class: 'nexus-control' },
     { regex: /\b(as|let|track|of)\b/g, class: 'nexus-control' },
+    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
+    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /((?:\[\(?|(?<!\w)\()[a-zA-Z0-9.-]+(?:\)?\]|\))(?==))/g, class: 'nexus-binding' },
     { regex: /\b([a-zA-Z0-9.-]+)=/g, class: 'nexus-attr' },
     { regex: /(\{\{.*?\}\})/g, class: 'nexus-signal' },
@@ -70,60 +69,62 @@ const highlightEngine = (text) => {
 const nexusScanner = () => {
   if (!isEnabled) return;
 
-  // 1. Get all code lines on the entire page
   const allLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
   if (allLines.length === 0) return;
 
-  // 2. Group lines by their file container
-  const fileGroups = new Map();
-  const containers = FILE_CONTAINER_SELECTORS.join(', ');
+  // 1. Path-Based Isolation: Key is the actual filename string
+  const fileStates = new Map();
 
   allLines.forEach(line => {
-    const container = line.closest(containers) || document.body;
-    if (!fileGroups.has(container)) {
-      fileGroups.set(container, []);
+    const text = line.innerText || line.textContent;
+    if (!text) return;
+
+    // 2. Identify the unique file ID for this line
+    const container = line.closest(CONTAINER_SELECTORS.join(', '));
+    // Try to find a unique string ID: data-path, aria-labelledby, or just a unique element ref
+    const fileId = container?.getAttribute('data-file-path') || 
+                   container?.getAttribute('data-path') || 
+                   container?.getAttribute('aria-labelledby') || 
+                   container || 
+                   'global';
+
+    if (!fileStates.has(fileId)) {
+      fileStates.set(fileId, { inTemplate: false });
     }
-    fileGroups.get(container).push(line);
-  });
+    const state = fileStates.get(fileId);
 
-  // 3. Process each group independently with an ISOLATED state machine
-  fileGroups.forEach((lines, container) => {
-    let inTemplateBlock = false;
-
-    lines.forEach(line => {
-      const text = line.innerText || line.textContent;
-      if (!text) return;
-
-      // Noise Guard: Reset state if we see imports or exports at file level
-      const trimmed = text.trim();
-      if (trimmed.startsWith('import ') || trimmed.startsWith('import {') || trimmed.startsWith('export ')) {
-        inTemplateBlock = false;
+    // 3. LOGIC BOUNDARY: Force reset on imports/exports
+    const trimmed = text.trim();
+    if (trimmed.startsWith('import ') || trimmed.startsWith('import {') || trimmed.startsWith('export ')) {
+        state.inTemplate = false;
         return;
-      }
+    }
 
-      // Triggers
-      const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
-      const isEnd = inTemplateBlock && (
-          text.includes('@Component') || 
-          text.includes('export class') || 
-          (text.trim() === '`') || 
-          (text.includes('`') && !text.includes('template:'))
-      );
+    // 4. INCEPTION GUARD
+    if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
 
-      if (isStart) inTemplateBlock = true;
+    // 5. TRIGGERS
+    const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
+    const isEnd = state.inTemplate && (
+        text.includes('@Component') || 
+        text.includes('export class') || 
+        (text.trim() === '`') || 
+        (text.includes('`') && !text.includes('template:'))
+    );
 
-      // Action
-      if (inTemplateBlock && !line.dataset.nexusDone) {
+    if (isStart) state.inTemplate = true;
+
+    // 6. ACTION
+    if (state.inTemplate && !line.dataset.nexusDone) {
         const highlighted = highlightEngine(text);
         if (highlighted) {
             line.innerHTML = highlighted;
             line.classList.add('nexus-line-v1', 'nexus-text-base');
             line.dataset.nexusDone = "true";
         }
-      }
+    }
 
-      if (isEnd) inTemplateBlock = false;
-    });
+    if (isEnd) state.inTemplate = false;
   });
 };
 
