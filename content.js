@@ -1,8 +1,6 @@
-console.log("%c [Nexus-Eye] System Live v1.4.2 (The Sequential Sentinel) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.4.3 (The Disciplined Sentinel) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
-let state_inTemplateBlock = false;
-let state_lastFileContainer = null;
 
 const LINE_SELECTORS = [
   '.diff-text-inner', 
@@ -13,7 +11,6 @@ const LINE_SELECTORS = [
   '.blob-code-content'
 ];
 
-// Aggressive container discovery for both PRs and Blobs
 const FILE_CONTAINER_SELECTORS = '.file, .blob-wrapper, section[aria-labelledby], [data-path], [data-file-path], .react-blob-view-container, .js-file';
 
 const highlightEngine = (text) => {
@@ -21,23 +18,26 @@ const highlightEngine = (text) => {
   const tokens = [];
   let processed = text;
 
+  // PASS 1: Strings (Capture first)
   processed = processed.replace(/("[^"]*"|'[^']*'|`[^`]*`)/g, (match) => {
     const tokenId = `§§§NEXUS_${tokens.length}§§§`;
     tokens.push(`<span class="nexus-val">${match}</span>`);
     return tokenId;
   });
 
+  // PASS 2: Escape structural HTML characters
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+  // PASS 3: Apply structural patterns
   const patterns = [
+    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
+    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
     { regex: /((?<=@if|@for|@switch|@defer|@loading|@placeholder|@error)\s*)(\()/g, class: 'nexus-control' },
     { regex: /(\)\s*\{)/g, class: 'nexus-control' },
     { regex: /([\{\}])/g, class: 'nexus-control' },
     { regex: /\b(as|let|track|of)\b/g, class: 'nexus-control' },
-    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
-    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /((?:\[\(?|(?<!\w)\()[a-zA-Z0-9.-]+(?:\)?\]|\))(?==))/g, class: 'nexus-binding' },
     { regex: /\b([a-zA-Z0-9.-]+)=/g, class: 'nexus-attr' },
     { regex: /(\{\{.*?\}\})/g, class: 'nexus-signal' },
@@ -52,6 +52,7 @@ const highlightEngine = (text) => {
     });
   });
 
+  // PASS 4: Reassemble
   let finalHtml = processed;
   tokens.forEach((tokenHtml, i) => {
     const tokenId = `§§§NEXUS_${i}§§§`;
@@ -67,36 +68,50 @@ const nexusScanner = () => {
   const codeLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
   if (codeLines.length === 0) return;
 
-  // We process lines in the exact order they appear in the DOM
+  // STATE VARIABLES - Fresh for every scan run to prevent leakage between intervals
+  let inTemplateBlock = false;
+  let lastFileContainer = null;
+
   codeLines.forEach(line => {
     const text = line.innerText || line.textContent;
     if (!text) return;
 
-    // 1. DYNAMIC BOUNDARY CHECK
-    // If the line is within a different file than the last line, reset state
+    // 1. FILE CONTEXT RESET
     const container = line.closest(FILE_CONTAINER_SELECTORS);
-    if (container !== state_lastFileContainer) {
-        state_inTemplateBlock = false;
-        state_lastFileContainer = container;
+    if (container !== lastFileContainer) {
+        inTemplateBlock = false; // Reset state for a new file
+        lastFileContainer = container;
     }
 
     // 2. INCEPTION GUARD
     if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
 
-    // 3. STATE MACHINE TRIGGERS (Must run for every line to track transitions)
+    // 3. TRIGGERS
     const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
-    const isEnd = state_inTemplateBlock && (
+    const isEnd = inTemplateBlock && (
         text.includes('@Component') || 
         text.includes('export class') || 
         (text.trim() === '`') || 
         (text.includes('`') && !text.includes('template:'))
     );
 
-    if (isStart) state_inTemplateBlock = true;
+    if (isStart) inTemplateBlock = true;
 
-    // 4. ACTION (Only if not already done)
-    if (state_inTemplateBlock && !line.dataset.nexusDone) {
-        // Noise guard for imports
+    // 4. HEURISTIC FALLBACK: If we missed the start tag (virtual scroll), 
+    // but the line looks EXACTLY like an Angular template, enable mode.
+    // This allows the engine to "re-sync" as you scroll.
+    const isTemplateLine = /\[[a-zA-Z0-9.-]+\]=|\([a-zA-Z0-9.-]+\)=|\{\{.*?\}\}/.test(text);
+    if (!inTemplateBlock && isTemplateLine) {
+        // Only trigger if we aren't in a clearly non-template file (noisy guard)
+        const fileName = container?.querySelector('.js-path-name, [data-path], .react-blob-header-filename')?.innerText || '';
+        if (fileName.endsWith('.ts') || fileName.endsWith('.html')) {
+            inTemplateBlock = true;
+        }
+    }
+
+    // 5. ACTION
+    if (inTemplateBlock && !line.dataset.nexusDone) {
+        // Avoid highlighting standard imports
         if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
 
         const highlighted = highlightEngine(text);
@@ -107,8 +122,7 @@ const nexusScanner = () => {
         }
     }
 
-    // Reset state after line processing if end reached
-    if (isEnd) state_inTemplateBlock = false;
+    if (isEnd) inTemplateBlock = false;
   });
 };
 
