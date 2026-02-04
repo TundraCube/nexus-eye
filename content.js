@@ -1,8 +1,6 @@
-console.log("%c [Nexus-Eye] System Live v1.3.8 (The Disciplined Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.3.9 (The Isolated Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
-let state_inTemplateBlock = false;
-let state_currentFileContainer = null;
 
 const LINE_SELECTORS = [
   '.diff-text-inner', 
@@ -12,6 +10,8 @@ const LINE_SELECTORS = [
   '.react-code-text',
   '.blob-code-content'
 ];
+
+const FILE_SELECTORS = '.file, .blob-wrapper, [data-path], [data-file-path], section[aria-labelledby]';
 
 const highlightEngine = (text) => {
   if (!text) return '';
@@ -65,48 +65,43 @@ const highlightEngine = (text) => {
 const nexusScanner = () => {
   if (!isEnabled) return;
 
-  const codeLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
-  if (codeLines.length === 0) return;
+  // We find all file containers on the page
+  const containers = document.querySelectorAll(FILE_SELECTORS);
+  
+  containers.forEach(container => {
+    // Each file has its own isolated template state
+    let containerInTemplate = false;
+    
+    // Find all code lines within THIS specific file
+    const codeLines = container.querySelectorAll(LINE_SELECTORS.join(', '));
+    
+    codeLines.forEach(line => {
+      const text = line.innerText || line.textContent;
+      if (!text) return;
 
-  // Critical: We must maintain the state globally across the loop to handle virtual scroll
-  // but reset it correctly at boundaries.
+      // INCEPTION GUARD
+      if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
 
-  codeLines.forEach(line => {
-    const text = line.innerText || line.textContent;
-    if (!text) return;
+      // TRIGGERS
+      const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
+      const isEnd = containerInTemplate && (text.includes('@Component') || text.includes('export class') || (text.trim() === '`') || (text.includes('`') && !text.includes('template:')));
 
-    // 1. FILE CONTEXT RESET
-    // We use a broader check to find the file header/boundary
-    const fileContainer = line.closest('.file, .blob-wrapper, [data-path], [data-file-path], section[aria-labelledby]');
-    if (fileContainer !== state_currentFileContainer) {
-        state_inTemplateBlock = false; 
-        state_currentFileContainer = fileContainer;
-    }
+      if (isStart) containerInTemplate = true;
 
-    // 2. INCEPTION GUARD
-    if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
+      // Only highlight if this file's state is currently "IN TEMPLATE"
+      if (containerInTemplate && !line.dataset.nexusDone) {
+          if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
 
-    // 3. STATE MACHINE TRIGGERS (Must run for EVERY line, even if nexusDone)
-    const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
-    const isEnd = state_inTemplateBlock && (text.includes('@Component') || text.includes('export class') || (text.trim() === '`') || (text.includes('`') && !text.includes('template:')));
+          const highlighted = highlightEngine(text);
+          if (highlighted) {
+              line.innerHTML = highlighted;
+              line.classList.add('nexus-line-v1', 'nexus-text-base');
+              line.dataset.nexusDone = "true";
+          }
+      }
 
-    if (isStart) state_inTemplateBlock = true;
-
-    // 4. ACTION: Only highlight if state is ACTIVE and line isn't already DONE
-    if (state_inTemplateBlock && !line.dataset.nexusDone) {
-        // Noise guard for imports
-        if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
-
-        const highlighted = highlightEngine(text);
-        if (highlighted) {
-            line.innerHTML = highlighted;
-            line.classList.add('nexus-line-v1', 'nexus-text-base');
-            line.dataset.nexusDone = "true";
-        }
-    }
-
-    // Handle end of block
-    if (isEnd) state_inTemplateBlock = false;
+      if (isEnd) containerInTemplate = false;
+    });
   });
 };
 
