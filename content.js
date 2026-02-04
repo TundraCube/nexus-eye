@@ -1,38 +1,30 @@
-console.log("%c [Nexus-Eye] System Live v1.3.5 (Inception Guard) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.3.6 (The Absolute Vision) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
-
-// 1. FILE CONTAINERS: Targeting the wrappers for individual files in GitHub views
-const FILE_CONTAINERS = [
-  '.js-file-contents', 
-  '.blob-wrapper', 
-  '[data-test-selector="file-container"]',
-  '.react-blob-view-container'
-];
+let lastFile = null;
+let inTemplateBlock = false;
 
 const LINE_SELECTORS = [
   '.diff-text-inner', 
   '.react-code-line-contents',
   '.blob-code-inner',
   '.react-file-line-contents',
-  '.react-code-text'
+  '.react-code-text',
+  '.blob-code-content'
 ];
 
 const highlightEngine = (text) => {
   const tokens = [];
   let processed = text;
 
-  // PASS 1: Strings (Using escaped backticks in regex to avoid self-highlighting)
   processed = processed.replace(/("[^"]*"|'[^']*'|`[^`]*`)/g, (match) => {
     const tokenId = `§§§NEXUS_${tokens.length}§§§`;
     tokens.push(`<span class="nexus-val">${match}</span>`);
     return tokenId;
   });
 
-  // PASS 2: Escape structural HTML characters
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  // PASS 3: Apply structural patterns
   const patterns = [
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
@@ -56,7 +48,6 @@ const highlightEngine = (text) => {
     });
   });
 
-  // PASS 4: Reassemble
   let finalHtml = processed;
   tokens.forEach((tokenHtml, i) => {
     const tokenId = `§§§NEXUS_${i}§§§`;
@@ -69,48 +60,41 @@ const highlightEngine = (text) => {
 const nexusScanner = () => {
   if (!isEnabled) return;
 
-  // FIRST: Find all file containers on the page
-  const containers = document.querySelectorAll(FILE_CONTAINERS.join(', '));
-  
-  containers.forEach(container => {
-    // RESET state for every new file container to prevent state leakage
-    let inTemplateBlock = false;
+  const codeLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
+  if (codeLines.length === 0) return;
+
+  codeLines.forEach(line => {
+    // 1. FILE CONTEXT GUARD: Detect if we've moved to a new file
+    // GitHub uses these classes/attributes to separate files in PRs and Blobs
+    const fileContainer = line.closest('.file, .blob-wrapper, [data-path], [data-file-path], section[aria-labelledby]');
     
-    // Find all code lines within THIS container
-    const codeLines = container.querySelectorAll(LINE_SELECTORS.join(', '));
-    
-    codeLines.forEach(line => {
-      if (line.dataset.nexusDone) {
-          // If we hit a line already done, we must still respect its state in the machine
-          // for consistency, but we don't re-process it.
-          const text = line.innerText;
-          if (text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'))) inTemplateBlock = true;
-          if (inTemplateBlock && (text.includes('@Component') || text.includes('export class') || (text.includes('`') && !text.includes('template:')))) inTemplateBlock = false;
-          return;
-      }
+    if (fileContainer !== lastFile) {
+        inTemplateBlock = false; // RESET state for new file
+        lastFile = fileContainer;
+    }
 
-      const text = line.innerText;
+    const text = line.innerText;
 
-      // GUARD: Inception Guard - Skip if this is our own code being viewed
-      if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
-      
-      // Discovery Triggers
-      const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
-      const isEnd = inTemplateBlock && (text.includes('@Component') || text.includes('export class') || (text.includes('`') && !text.includes('template:')));
-      const isTemplatePattern = /\[[a-zA-Z0-9.-]+\]=|\([a-zA-Z0-9.-]+\)=|\{\{.*?\}\}|@(if|for|else|switch)\b/.test(text);
+    // 2. INCEPTION GUARD
+    if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
 
-      if (isStart) inTemplateBlock = true;
+    // 3. STATE MACHINE TRIGGERS
+    const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
+    const isEnd = inTemplateBlock && (text.includes('@Component') || text.includes('export class') || (text.includes('`') && !text.includes('template:')));
+    const isDefinitiveTemplate = /\[[a-zA-Z0-9.-]+\]=|\([a-zA-Z0-9.-]+\)=|\{\{.*?\}\}|@(if|for|else|switch)\b/.test(text);
 
-      if (inTemplateBlock || isTemplatePattern) {
-        if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
+    if (isStart) inTemplateBlock = true;
 
-        line.innerHTML = highlightEngine(text);
-        line.classList.add('nexus-line-v1', 'nexus-text-base');
-        line.dataset.nexusDone = "true";
-      }
+    if (!line.dataset.nexusDone && (inTemplateBlock || isDefinitiveTemplate)) {
+      // Final noise guard
+      if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
 
-      if (isEnd) inTemplateBlock = false;
-    });
+      line.innerHTML = highlightEngine(text);
+      line.classList.add('nexus-line-v1', 'nexus-text-base');
+      line.dataset.nexusDone = "true";
+    }
+
+    if (isEnd) inTemplateBlock = false;
   });
 };
 
@@ -129,5 +113,10 @@ chrome.runtime.onMessage.addListener((message) => {
 setInterval(nexusScanner, 1000);
 document.addEventListener('turbo:render', nexusScanner);
 
-const observer = new MutationObserver(nexusScanner);
+const observer = new MutationObserver((mutations) => {
+  // Only trigger if new nodes were added
+  if (mutations.some(m => m.addedNodes.length > 0)) {
+    nexusScanner();
+  }
+});
 observer.observe(document.body, { childList: true, subtree: true });
