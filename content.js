@@ -1,4 +1,4 @@
-console.log("%c [Nexus-Eye] System Live v1.2.6 (The Final Vision) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.3.4 (True Sight Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 
