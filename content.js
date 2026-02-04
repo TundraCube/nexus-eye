@@ -1,4 +1,4 @@
-console.log("%c [Nexus-Eye] System Live v1.3.9 (The Isolated Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.4.0 (Atomic State Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 
@@ -11,7 +11,8 @@ const LINE_SELECTORS = [
   '.blob-code-content'
 ];
 
-const FILE_SELECTORS = '.file, .blob-wrapper, [data-path], [data-file-path], section[aria-labelledby]';
+// Broadest possible selectors for file containers in both PR and Blob views
+const FILE_WRAPPER_SELECTORS = '.file, .blob-wrapper, [data-path], [data-file-path], section[aria-labelledby], .react-blob-view-container';
 
 const highlightEngine = (text) => {
   if (!text) return '';
@@ -65,43 +66,48 @@ const highlightEngine = (text) => {
 const nexusScanner = () => {
   if (!isEnabled) return;
 
-  // We find all file containers on the page
-  const containers = document.querySelectorAll(FILE_SELECTORS);
-  
-  containers.forEach(container => {
-    // Each file has its own isolated template state
-    let containerInTemplate = false;
-    
-    // Find all code lines within THIS specific file
-    const codeLines = container.querySelectorAll(LINE_SELECTORS.join(', '));
-    
-    codeLines.forEach(line => {
-      const text = line.innerText || line.textContent;
-      if (!text) return;
+  const codeLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
+  if (codeLines.length === 0) return;
 
-      // INCEPTION GUARD
-      if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
+  // Track state PER FILE using a Map of the container elements
+  // This ensures that state never leaks between different files in a PR
+  const fileStates = new Map();
 
-      // TRIGGERS
-      const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
-      const isEnd = containerInTemplate && (text.includes('@Component') || text.includes('export class') || (text.trim() === '`') || (text.includes('`') && !text.includes('template:')));
+  codeLines.forEach(line => {
+    // Determine which file this line belongs to
+    const container = line.closest(FILE_WRAPPER_SELECTORS);
+    const fileId = container || 'global-fallback';
 
-      if (isStart) containerInTemplate = true;
+    if (!fileStates.has(fileId)) {
+      fileStates.set(fileId, { inTemplate: false });
+    }
+    const state = fileStates.get(fileId);
 
-      // Only highlight if this file's state is currently "IN TEMPLATE"
-      if (containerInTemplate && !line.dataset.nexusDone) {
-          if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
+    const text = line.innerText || line.textContent;
+    if (!text) return;
 
-          const highlighted = highlightEngine(text);
-          if (highlighted) {
-              line.innerHTML = highlighted;
-              line.classList.add('nexus-line-v1', 'nexus-text-base');
-              line.dataset.nexusDone = "true";
-          }
+    // INCEPTION GUARD
+    if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
+
+    // TRIGGERS
+    const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
+    const isEnd = state.inTemplate && (text.includes('@Component') || text.includes('export class') || (text.trim() === '`') || (text.includes('`') && !text.includes('template:')));
+
+    if (isStart) state.inTemplate = true;
+
+    // ACTION
+    if (state.inTemplate && !line.dataset.nexusDone) {
+      if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
+
+      const highlighted = highlightEngine(text);
+      if (highlighted) {
+          line.innerHTML = highlighted;
+          line.classList.add('nexus-line-v1', 'nexus-text-base');
+          line.dataset.nexusDone = "true";
       }
+    }
 
-      if (isEnd) containerInTemplate = false;
-    });
+    if (isEnd) state.inTemplate = false;
   });
 };
 
