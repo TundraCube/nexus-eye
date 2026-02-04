@@ -1,6 +1,7 @@
-console.log("%c [Nexus-Eye] System Live v1.5.0 (The Path Sentinel) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.5.1 (Diagnostic Mode) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
+const FILE_STATE_MAP = new Map();
 
 const LINE_SELECTORS = [
   '.diff-text-inner', 
@@ -35,14 +36,14 @@ const highlightEngine = (text) => {
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const patterns = [
+    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
+    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
     { regex: /((?<=@if|@for|@switch|@defer|@loading|@placeholder|@error)\s*)(\()/g, class: 'nexus-control' },
     { regex: /(\)\s*\{)/g, class: 'nexus-control' },
     { regex: /([\{\}])/g, class: 'nexus-control' },
     { regex: /\b(as|let|track|of)\b/g, class: 'nexus-control' },
-    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
-    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /((?:\[\(?|(?<!\w)\()[a-zA-Z0-9.-]+(?:\)?\]|\))(?==))/g, class: 'nexus-binding' },
     { regex: /\b([a-zA-Z0-9.-]+)=/g, class: 'nexus-attr' },
     { regex: /(\{\{.*?\}\})/g, class: 'nexus-signal' },
@@ -72,38 +73,23 @@ const nexusScanner = () => {
   const allLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
   if (allLines.length === 0) return;
 
-  // 1. Path-Based Isolation: Key is the actual filename string
-  const fileStates = new Map();
-
   allLines.forEach(line => {
     const text = line.innerText || line.textContent;
     if (!text) return;
 
-    // 2. Identify the unique file ID for this line
+    // 1. Identify unique file ID
     const container = line.closest(CONTAINER_SELECTORS.join(', '));
-    // Try to find a unique string ID: data-path, aria-labelledby, or just a unique element ref
     const fileId = container?.getAttribute('data-file-path') || 
                    container?.getAttribute('data-path') || 
                    container?.getAttribute('aria-labelledby') || 
-                   container || 
                    'global';
 
-    if (!fileStates.has(fileId)) {
-      fileStates.set(fileId, { inTemplate: false });
+    if (!FILE_STATE_MAP.has(fileId)) {
+      FILE_STATE_MAP.set(fileId, { inTemplate: false });
     }
-    const state = fileStates.get(fileId);
+    const state = FILE_STATE_MAP.get(fileId);
 
-    // 3. LOGIC BOUNDARY: Force reset on imports/exports
-    const trimmed = text.trim();
-    if (trimmed.startsWith('import ') || trimmed.startsWith('import {') || trimmed.startsWith('export ')) {
-        state.inTemplate = false;
-        return;
-    }
-
-    // 4. INCEPTION GUARD
-    if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
-
-    // 5. TRIGGERS
+    // 2. DETECTION FLAGS
     const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
     const isEnd = state.inTemplate && (
         text.includes('@Component') || 
@@ -111,11 +97,29 @@ const nexusScanner = () => {
         (text.trim() === '`') || 
         (text.includes('`') && !text.includes('template:'))
     );
+    const isLogicWall = /^(import|export)\b/.test(text.trim());
 
+    // 3. DIAGNOSTIC LOGGING (Filtered for high-value targets)
+    if (isStart || isEnd || isLogicWall || text.includes('Initialize ADR') || text.includes('h1')) {
+        console.group(`[Nexus-Eye Scan] File: ${fileId.split('/').pop()}`);
+        console.log(`Line Content: "${text.trim().substring(0, 40)}..."`);
+        console.log(`State [Before]: inTemplate=${state.inTemplate}`);
+        console.log(`Triggers: isStart=${isStart}, isEnd=${isEnd}, isLogicWall=${isLogicWall}`);
+    }
+
+    // 4. STATE UPDATE
     if (isStart) state.inTemplate = true;
+    if (isLogicWall) state.inTemplate = false;
 
-    // 6. ACTION
+    if (isStart || isEnd || isLogicWall || text.includes('Initialize ADR') || text.includes('h1')) {
+        console.log(`State [After]: inTemplate=${state.inTemplate}`);
+        console.groupEnd();
+    }
+
+    // 5. HIGHLIGHT ACTION
     if (state.inTemplate && !line.dataset.nexusDone) {
+        if (isLogicWall) return;
+
         const highlighted = highlightEngine(text);
         if (highlighted) {
             line.innerHTML = highlighted;
