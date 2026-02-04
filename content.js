@@ -1,4 +1,4 @@
-console.log("%c [Nexus-Eye] System Live v1.5.1 (Diagnostic Mode) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.5.2 (Deep Isolation) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 const FILE_STATE_MAP = new Map();
@@ -12,14 +12,15 @@ const LINE_SELECTORS = [
   '.blob-code-content'
 ];
 
+// Ultra-broad selectors for identifying the parent "File" unit
 const CONTAINER_SELECTORS = [
-  '.file', 
+  'section[aria-labelledby]', // 2026 Improved View
+  '.file',                      // Classic PR View
   '.js-file',
   '.blob-wrapper', 
-  'section[aria-labelledby]', 
-  '[data-path]', 
-  '[data-file-path]', 
-  '.react-blob-view-container'
+  '.react-blob-view-container',
+  '.js-file-contents',
+  '[data-details-container-group="file"]'
 ];
 
 const highlightEngine = (text) => {
@@ -74,22 +75,26 @@ const nexusScanner = () => {
   if (allLines.length === 0) return;
 
   allLines.forEach(line => {
-    const text = line.innerText || line.textContent;
-    if (!text) return;
-
-    // 1. Identify unique file ID
+    // 1. IMPROVED FILE ID DISCOVERY
     const container = line.closest(CONTAINER_SELECTORS.join(', '));
+    
+    // If no container found, we might be in a view where the line is a direct child of a list.
+    // We try to find any unique ancestor.
     const fileId = container?.getAttribute('data-file-path') || 
                    container?.getAttribute('data-path') || 
                    container?.getAttribute('aria-labelledby') || 
-                   'global';
+                   container?.id || 
+                   'global-fallback';
 
     if (!FILE_STATE_MAP.has(fileId)) {
       FILE_STATE_MAP.set(fileId, { inTemplate: false });
     }
     const state = FILE_STATE_MAP.get(fileId);
 
-    // 2. DETECTION FLAGS
+    const text = line.innerText || line.textContent;
+    if (!text) return;
+
+    // 2. DETECTION
     const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
     const isEnd = state.inTemplate && (
         text.includes('@Component') || 
@@ -97,26 +102,18 @@ const nexusScanner = () => {
         (text.trim() === '`') || 
         (text.includes('`') && !text.includes('template:'))
     );
-    const isLogicWall = /^(import|export)\b/.test(text.trim());
+    const isLogicWall = /^(import|export|const|let|var)\b/.test(text.trim());
 
-    // 3. DIAGNOSTIC LOGGING (Filtered for high-value targets)
-    if (isStart || isEnd || isLogicWall || text.includes('Initialize ADR') || text.includes('h1')) {
-        console.group(`[Nexus-Eye Scan] File: ${fileId.split('/').pop()}`);
-        console.log(`Line Content: "${text.trim().substring(0, 40)}..."`);
-        console.log(`State [Before]: inTemplate=${state.inTemplate}`);
-        console.log(`Triggers: isStart=${isStart}, isEnd=${isEnd}, isLogicWall=${isLogicWall}`);
+    // 3. DIAGNOSTICS (If it still says 'global-fallback', we have a selector issue)
+    if (isStart || isEnd || isLogicWall) {
+        console.log(`[Nexus-Eye] State Transition in ${fileId}: isStart=${isStart}, isEnd=${isEnd}, isLogicWall=${isLogicWall}`);
     }
 
-    // 4. STATE UPDATE
+    // 4. STATE MACHINE
     if (isStart) state.inTemplate = true;
     if (isLogicWall) state.inTemplate = false;
 
-    if (isStart || isEnd || isLogicWall || text.includes('Initialize ADR') || text.includes('h1')) {
-        console.log(`State [After]: inTemplate=${state.inTemplate}`);
-        console.groupEnd();
-    }
-
-    // 5. HIGHLIGHT ACTION
+    // 5. ACTION
     if (state.inTemplate && !line.dataset.nexusDone) {
         if (isLogicWall) return;
 
