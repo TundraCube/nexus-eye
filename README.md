@@ -1,5 +1,7 @@
 # Nexus-Eye 🦣👁️
 
+![Nexus-Eye Marquee](assets/marquee.jpg)
+
 **Industrial-grade syntax highlighting for Angular inline templates on GitHub.**
 
 Nexus-Eye is a Chrome extension designed to bring IDE-level visual clarity to GitHub Pull Requests. It solves the "White Text Problem" by identifying Angular template regions inside TypeScript files and applying a high-contrast, professional theme instantly.
