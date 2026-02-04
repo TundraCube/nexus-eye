@@ -1,8 +1,8 @@
-console.log("%c [Nexus-Eye] System Live v1.3.6 (The Absolute Vision) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.3.7 (The Stable Vision) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
-let lastFile = null;
 let inTemplateBlock = false;
+let currentFileContainer = null;
 
 const LINE_SELECTORS = [
   '.diff-text-inner', 
@@ -14,17 +14,21 @@ const LINE_SELECTORS = [
 ];
 
 const highlightEngine = (text) => {
+  if (!text) return '';
   const tokens = [];
   let processed = text;
 
+  // PASS 1: Strings (Capture first)
   processed = processed.replace(/("[^"]*"|'[^']*'|`[^`]*`)/g, (match) => {
     const tokenId = `§§§NEXUS_${tokens.length}§§§`;
     tokens.push(`<span class="nexus-val">${match}</span>`);
     return tokenId;
   });
 
+  // PASS 2: Escape structural HTML characters
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+  // PASS 3: Apply structural patterns
   const patterns = [
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
@@ -48,6 +52,7 @@ const highlightEngine = (text) => {
     });
   });
 
+  // PASS 4: Reassemble
   let finalHtml = processed;
   tokens.forEach((tokenHtml, i) => {
     const tokenId = `§§§NEXUS_${i}§§§`;
@@ -64,16 +69,17 @@ const nexusScanner = () => {
   if (codeLines.length === 0) return;
 
   codeLines.forEach(line => {
-    // 1. FILE CONTEXT GUARD: Detect if we've moved to a new file
-    // GitHub uses these classes/attributes to separate files in PRs and Blobs
+    if (line.dataset.nexusDone) return;
+
+    // 1. FILE CONTEXT RESET
     const fileContainer = line.closest('.file, .blob-wrapper, [data-path], [data-file-path], section[aria-labelledby]');
-    
-    if (fileContainer !== lastFile) {
-        inTemplateBlock = false; // RESET state for new file
-        lastFile = fileContainer;
+    if (fileContainer !== currentFileContainer) {
+        inTemplateBlock = false; 
+        currentFileContainer = fileContainer;
     }
 
-    const text = line.innerText;
+    const text = line.innerText || line.textContent;
+    if (!text || text.trim().length === 0) return;
 
     // 2. INCEPTION GUARD
     if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
@@ -81,17 +87,22 @@ const nexusScanner = () => {
     // 3. STATE MACHINE TRIGGERS
     const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
     const isEnd = inTemplateBlock && (text.includes('@Component') || text.includes('export class') || (text.includes('`') && !text.includes('template:')));
+    
+    // Strict Template Pattern (requires = or {{ or @)
     const isDefinitiveTemplate = /\[[a-zA-Z0-9.-]+\]=|\([a-zA-Z0-9.-]+\)=|\{\{.*?\}\}|@(if|for|else|switch)\b/.test(text);
 
     if (isStart) inTemplateBlock = true;
 
-    if (!line.dataset.nexusDone && (inTemplateBlock || isDefinitiveTemplate)) {
-      // Final noise guard
+    if (inTemplateBlock || isDefinitiveTemplate) {
+      // Noise guard for imports
       if (text.trim().startsWith('import ') || text.trim().startsWith('import {')) return;
 
-      line.innerHTML = highlightEngine(text);
-      line.classList.add('nexus-line-v1', 'nexus-text-base');
-      line.dataset.nexusDone = "true";
+      const highlighted = highlightEngine(text);
+      if (highlighted) {
+          line.innerHTML = highlighted;
+          line.classList.add('nexus-line-v1', 'nexus-text-base');
+          line.dataset.nexusDone = "true";
+      }
     }
 
     if (isEnd) inTemplateBlock = false;
@@ -114,9 +125,8 @@ setInterval(nexusScanner, 1000);
 document.addEventListener('turbo:render', nexusScanner);
 
 const observer = new MutationObserver((mutations) => {
-  // Only trigger if new nodes were added
-  if (mutations.some(m => m.addedNodes.length > 0)) {
-    nexusScanner();
-  }
+    if (mutations.some(m => m.addedNodes.length > 0)) {
+        nexusScanner();
+    }
 });
 observer.observe(document.body, { childList: true, subtree: true });
