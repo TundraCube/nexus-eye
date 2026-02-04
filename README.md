@@ -24,13 +24,25 @@ Nexus-Eye is a Chrome extension designed to bring IDE-level visual clarity to Gi
 3. Enable **Developer mode** (top right).
 4. Click **Load unpacked** and select the extracted folder.
 
+## 🏗️ Technical Architecture
+
+Nexus-Eye uses a **Sequential Sentinel** engine to track Angular template boundaries across GitHub's virtualized DOM.
+
+### Key Concepts:
+- **Dynamic Boundary Checking**: State is reset automatically when scrolling between different file containers in a PR.
+- **Surgical Mutation Observation**: Uses a `MutationObserver` to detect and highlight new lines instantly as GitHub's React engine renders them.
+- **Stateful Persistence**: Tracks template entry/exit points for every line to maintain highlighting accuracy during virtual scroll cycles.
+
+For a deep dive into the trade-offs between local parsing and raw file fetching, see the official [Architecture Guide](https://github.com/TundraCube/tundra-nexus/blob/master/glacial-vault/src/content/knowledge/projects/tundra-nexus/nexus-eye-architecture.md).
+
 ## 🛠️ Built with
 - Vanilla JavaScript
 - Surgical CSS
 - Pure state-machine logic
+- PrismJS (High-Contrast Theme)
 
 ## 🔒 Privacy
-Nexus-Eye is 100% private. It runs entirely on your local machine. No data collection, no tracking.
+Nexus-Eye is 100% private. It runs entirely on your local machine. No data collection, no tracking. No background network requests are made to GitHub's raw file servers.
 
 ---
 Part of the [Tundra Nexus](https://github.com/TundraCube/tundra-nexus) ecosystem.
