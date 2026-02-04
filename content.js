@@ -1,8 +1,7 @@
-console.log("%c [Nexus-Eye] System Live v1.3.2 (Ghost Layer Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.3.3 (The Boundary Guard) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 
-// 1. UPDATED SELECTORS: Targeting the display layers of GitHub's virtual code viewer
 const VIEW_PROFILES = [
   { name: 'diff', selectors: ['.diff-text-inner', '.react-code-line-contents'] },
   { name: 'blob', selectors: ['.blob-code-inner', '.react-file-line-contents', '.react-code-text'] }
@@ -12,17 +11,14 @@ const highlightEngine = (text) => {
   const tokens = [];
   let processed = text;
 
-  // PASS 1: Strings (Capture first to protect from escaping)
   processed = processed.replace(/("[^"]*"|'[^']*')/g, (match) => {
     const tokenId = `§§§NEXUS_${tokens.length}§§§`;
     tokens.push(`<span class="nexus-val">${match}</span>`);
     return tokenId;
   });
 
-  // PASS 2: Escape structural HTML characters
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  // PASS 3: Apply structural patterns
   const patterns = [
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
@@ -46,7 +42,6 @@ const highlightEngine = (text) => {
     });
   });
 
-  // PASS 4: Reassemble
   let finalHtml = processed;
   tokens.forEach((tokenHtml, i) => {
     const tokenId = `§§§NEXUS_${i}§§§`;
@@ -67,20 +62,27 @@ const nexusScanner = () => {
   let inTemplateBlock = false;
 
   codeLines.forEach(line => {
-    // If we've already processed this exact element, skip
-    if (line.dataset.nexusDone) return;
-
-    // GitHub's 2026 viewer often hides text in nested spans. 
-    // innerText is the most reliable way to get the clean code.
     const text = line.innerText;
     
+    // GUARD: Reset state if we hit a component boundary or export to prevent "bleeding"
+    if (text.includes('@Component') || text.includes('export class')) {
+      inTemplateBlock = false;
+    }
+
     // Discovery: template block start
     if (text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'))) {
       inTemplateBlock = true;
       return; 
     }
     
-    // Discovery: template block end
+    // Discovery: template block end (Look for standalone backtick)
+    // We check for backtick and ENSURE we aren't just looking at the start line again
+    if (inTemplateBlock && text.trim() === '`') {
+        inTemplateBlock = false;
+        return;
+    }
+
+    // Fallback: If it's a multi-line string ending, it might have content + backtick
     if (inTemplateBlock && text.includes('`') && !text.includes('template:')) {
         line.innerHTML = highlightEngine(text);
         line.classList.add('nexus-line-v1', 'nexus-text-base');
@@ -89,7 +91,7 @@ const nexusScanner = () => {
         return;
     }
 
-    if (inTemplateBlock) {
+    if (inTemplateBlock && !line.dataset.nexusDone) {
       line.innerHTML = highlightEngine(text);
       line.classList.add('nexus-line-v1', 'nexus-text-base');
       line.dataset.nexusDone = "true";
@@ -97,7 +99,6 @@ const nexusScanner = () => {
   });
 };
 
-// Lifecycle
 chrome.storage.local.get(["enabled"], (result) => {
   isEnabled = result.enabled !== false;
   if (isEnabled) nexusScanner();
@@ -110,7 +111,6 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-// Periodic scan + mutation watcher for virtual scrolling
 setInterval(nexusScanner, 1000);
 document.addEventListener('turbo:render', nexusScanner);
 
