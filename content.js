@@ -1,4 +1,4 @@
-console.log("%c [Nexus-Eye] System Live v1.5.2 (Deep Isolation) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.5.3 (The Deep Anchor) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 const FILE_STATE_MAP = new Map();
@@ -12,15 +12,16 @@ const LINE_SELECTORS = [
   '.blob-code-content'
 ];
 
-// Ultra-broad selectors for identifying the parent "File" unit
+// Expanded container selectors to catch the 2026 "Improved" view
 const CONTAINER_SELECTORS = [
-  'section[aria-labelledby]', // 2026 Improved View
-  '.file',                      // Classic PR View
+  'section[aria-labelledby]',
+  'div[data-details-container-group="file"]',
+  '.file',
   '.js-file',
-  '.blob-wrapper', 
-  '.react-blob-view-container',
-  '.js-file-contents',
-  '[data-details-container-group="file"]'
+  '.blob-wrapper',
+  '[data-path]',
+  '[data-file-path]',
+  '.react-blob-view-container'
 ];
 
 const highlightEngine = (text) => {
@@ -71,15 +72,25 @@ const highlightEngine = (text) => {
 const nexusScanner = () => {
   if (!isEnabled) return;
 
-  const allLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
-  if (allLines.length === 0) return;
+  const codeLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
+  if (codeLines.length === 0) return;
 
-  allLines.forEach(line => {
-    // 1. IMPROVED FILE ID DISCOVERY
-    const container = line.closest(CONTAINER_SELECTORS.join(', '));
+  codeLines.forEach(line => {
+    // 1. IMPROVED DISCOVERY: Climb up to find any container that looks like a file
+    let container = line.closest(CONTAINER_SELECTORS.join(', '));
     
-    // If no container found, we might be in a view where the line is a direct child of a list.
-    // We try to find any unique ancestor.
+    // If that fails, look for the 'file-diff-N' or 'diff-N' ID pattern
+    if (!container) {
+        let parent = line.parentElement;
+        while (parent && parent !== document.body) {
+            if (parent.id && (parent.id.includes('diff-') || parent.id.includes('file-'))) {
+                container = parent;
+                break;
+            }
+            parent = parent.parentElement;
+        }
+    }
+
     const fileId = container?.getAttribute('data-file-path') || 
                    container?.getAttribute('data-path') || 
                    container?.getAttribute('aria-labelledby') || 
@@ -102,18 +113,13 @@ const nexusScanner = () => {
         (text.trim() === '`') || 
         (text.includes('`') && !text.includes('template:'))
     );
-    const isLogicWall = /^(import|export|const|let|var)\b/.test(text.trim());
+    const isLogicWall = /^(import|export)\b/.test(text.trim());
 
-    // 3. DIAGNOSTICS (If it still says 'global-fallback', we have a selector issue)
-    if (isStart || isEnd || isLogicWall) {
-        console.log(`[Nexus-Eye] State Transition in ${fileId}: isStart=${isStart}, isEnd=${isEnd}, isLogicWall=${isLogicWall}`);
-    }
-
-    // 4. STATE MACHINE
+    // 3. STATE UPDATE
     if (isStart) state.inTemplate = true;
     if (isLogicWall) state.inTemplate = false;
 
-    // 5. ACTION
+    // 4. ACTION
     if (state.inTemplate && !line.dataset.nexusDone) {
         if (isLogicWall) return;
 
