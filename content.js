@@ -1,10 +1,10 @@
-console.log("%c [Nexus-Eye] System Live v1.4.5 (The Persistent Sentinel) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.4.6 (The True Path) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 
-// GLOBAL STATE: Persists across scanning intervals
-// WeakMap uses the DOM element as a key, so it cleans up automatically
-const FILE_STATES = new WeakMap();
+// GLOBAL STATE: Persists between scan intervals using File Path as the key
+// This survives virtual scrolling and DOM recycling.
+const FILE_STATE_MAP = new Map();
 
 const LINE_SELECTORS = [
   '.diff-text-inner', 
@@ -15,16 +15,8 @@ const LINE_SELECTORS = [
   '.blob-code-content'
 ];
 
-const FILE_CONTAINER_SELECTORS = [
-  '.file', 
-  '.js-file',
-  '.blob-wrapper', 
-  'section[aria-labelledby]', 
-  '[data-path]', 
-  '[data-file-path]', 
-  '.react-blob-view-container',
-  '.js-file-contents'
-];
+// Broad selectors to find the unique ID of the file we are currently scanning
+const CONTAINER_SELECTORS = '.file, .blob-wrapper, section[aria-labelledby], [data-path], [data-file-path], .react-blob-view-container';
 
 const highlightEngine = (text) => {
   if (!text) return '';
@@ -41,16 +33,16 @@ const highlightEngine = (text) => {
   // PASS 2: Escape
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  // PASS 3: Apply structural patterns
+  // PASS 3: Patterns
   const patterns = [
-    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
-    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
     { regex: /((?<=@if|@for|@switch|@defer|@loading|@placeholder|@error)\s*)(\()/g, class: 'nexus-control' },
     { regex: /(\)\s*\{)/g, class: 'nexus-control' },
     { regex: /([\{\}])/g, class: 'nexus-control' },
     { regex: /\b(as|let|track|of)\b/g, class: 'nexus-control' },
+    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
+    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /((?:\[\(?|(?<!\w)\()[a-zA-Z0-9.-]+(?:\)?\]|\))(?==))/g, class: 'nexus-binding' },
     { regex: /\b([a-zA-Z0-9.-]+)=/g, class: 'nexus-attr' },
     { regex: /(\{\{.*?\}\})/g, class: 'nexus-signal' },
@@ -81,24 +73,31 @@ const nexusScanner = () => {
   const codeLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
   if (codeLines.length === 0) return;
 
+  // We process EVERY line on the page in order.
+  // We determine the file context for each line dynamically.
+  
   codeLines.forEach(line => {
-    // Identify file
-    const container = line.closest(FILE_CONTAINER_SELECTORS.join(', '));
-    if (!container) return;
-
-    // Initialize/Retrieve persistent state for this specific file
-    if (!FILE_STATES.has(container)) {
-      FILE_STATES.set(container, { inTemplate: false });
-    }
-    const state = FILE_STATES.get(container);
-
     const text = line.innerText || line.textContent;
     if (!text) return;
 
-    // INCEPTION GUARD
+    // 1. EXTRACT FILE ID (The Path)
+    // We look for data-path, aria-labelledby, or any parent that identifies the file.
+    const container = line.closest(CONTAINER_SELECTORS);
+    const fileId = container?.getAttribute('data-path') || 
+                   container?.getAttribute('data-file-path') || 
+                   container?.getAttribute('aria-labelledby') || 
+                   'global-context';
+
+    // 2. INITIALIZE STATE for this specific file path
+    if (!FILE_STATE_MAP.has(fileId)) {
+        FILE_STATE_MAP.set(fileId, { inTemplate: false });
+    }
+    const state = FILE_STATE_MAP.get(fileId);
+
+    // 3. INCEPTION GUARD
     if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
 
-    // TRIGGERS (Run on every line to maintain sync)
+    // 4. TRIGGERS (Always run to keep the machine synced across scrolls)
     const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
     const isEnd = state.inTemplate && (
         text.includes('@Component') || 
@@ -107,15 +106,14 @@ const nexusScanner = () => {
         (text.includes('`') && !text.includes('template:'))
     );
     
-    // Logic Wall: Imports/Exports kill the template state immediately
+    // Logic Wall: Imports kill the template state immediately
     const isLogicWall = /^(import|export)\b/.test(text.trim());
 
     if (isStart) state.inTemplate = true;
     if (isLogicWall) state.inTemplate = false;
 
-    // ACTION
+    // 5. ACTION
     if (state.inTemplate && !line.dataset.nexusDone) {
-        // Noise guard: never highlight logic wall lines
         if (isLogicWall) return;
 
         const highlighted = highlightEngine(text);
