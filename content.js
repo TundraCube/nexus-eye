@@ -1,18 +1,18 @@
-console.log("%c [Nexus-Eye] System Live v1.3.1 (Deep Vision Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.3.2 (Ghost Layer Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 
-// 1. VIEW PROFILES: Definitive selectors for GitHub's evolving DOM
+// 1. UPDATED SELECTORS: Targeting the display layers of GitHub's virtual code viewer
 const VIEW_PROFILES = [
   { name: 'diff', selectors: ['.diff-text-inner', '.react-code-line-contents'] },
-  { name: 'blob', selectors: ['.blob-code-inner', '.react-file-line-contents', '.blob-code-content'] }
+  { name: 'blob', selectors: ['.blob-code-inner', '.react-file-line-contents', '.react-code-text'] }
 ];
 
 const highlightEngine = (text) => {
   const tokens = [];
   let processed = text;
 
-  // PASS 1: Strings (Raw capture)
+  // PASS 1: Strings (Capture first to protect from escaping)
   processed = processed.replace(/("[^"]*"|'[^']*')/g, (match) => {
     const tokenId = `§§§NEXUS_${tokens.length}§§§`;
     tokens.push(`<span class="nexus-val">${match}</span>`);
@@ -20,10 +20,7 @@ const highlightEngine = (text) => {
   });
 
   // PASS 2: Escape structural HTML characters
-  processed = processed
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   // PASS 3: Apply structural patterns
   const patterns = [
@@ -70,28 +67,29 @@ const nexusScanner = () => {
   let inTemplateBlock = false;
 
   codeLines.forEach(line => {
-    // If GitHub already highlighted this with spans, we need the raw text.
-    // .innerText usually gives clean text even with nested spans.
+    // If we've already processed this exact element, skip
+    if (line.dataset.nexusDone) return;
+
+    // GitHub's 2026 viewer often hides text in nested spans. 
+    // innerText is the most reliable way to get the clean code.
     const text = line.innerText;
     
-    // State machine triggers (Fuzzy match to handle split lines)
+    // Discovery: template block start
     if (text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'))) {
       inTemplateBlock = true;
       return; 
     }
     
-    // End check: Backtick not accompanied by template: or ${
-    if (inTemplateBlock && text.includes('`') && !text.includes('template:') && !text.includes('${')) {
-      if (!line.dataset.nexusDone) {
+    // Discovery: template block end
+    if (inTemplateBlock && text.includes('`') && !text.includes('template:')) {
         line.innerHTML = highlightEngine(text);
         line.classList.add('nexus-line-v1', 'nexus-text-base');
         line.dataset.nexusDone = "true";
-      }
-      inTemplateBlock = false;
-      return; 
+        inTemplateBlock = false;
+        return;
     }
 
-    if (inTemplateBlock && !line.dataset.nexusDone) {
+    if (inTemplateBlock) {
       line.innerHTML = highlightEngine(text);
       line.classList.add('nexus-line-v1', 'nexus-text-base');
       line.dataset.nexusDone = "true";
@@ -112,6 +110,9 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
+// Periodic scan + mutation watcher for virtual scrolling
 setInterval(nexusScanner, 1000);
 document.addEventListener('turbo:render', nexusScanner);
-document.addEventListener('pjax:end', nexusScanner); // Legacy GitHub support
+
+const observer = new MutationObserver(nexusScanner);
+observer.observe(document.body, { childList: true, subtree: true });
