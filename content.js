@@ -1,6 +1,10 @@
-console.log("%c [Nexus-Eye] System Live v1.4.4 (The Boundary Fortress) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.4.5 (The Persistent Sentinel) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
+
+// GLOBAL STATE: Persists across scanning intervals
+// WeakMap uses the DOM element as a key, so it cleans up automatically
+const FILE_STATES = new WeakMap();
 
 const LINE_SELECTORS = [
   '.diff-text-inner', 
@@ -11,7 +15,6 @@ const LINE_SELECTORS = [
   '.blob-code-content'
 ];
 
-// Expanded container selectors to catch every possible GitHub file wrapper
 const FILE_CONTAINER_SELECTORS = [
   '.file', 
   '.js-file',
@@ -19,7 +22,8 @@ const FILE_CONTAINER_SELECTORS = [
   'section[aria-labelledby]', 
   '[data-path]', 
   '[data-file-path]', 
-  '.react-blob-view-container'
+  '.react-blob-view-container',
+  '.js-file-contents'
 ];
 
 const highlightEngine = (text) => {
@@ -37,16 +41,16 @@ const highlightEngine = (text) => {
   // PASS 2: Escape
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  // PASS 3: Patterns
+  // PASS 3: Apply structural patterns
   const patterns = [
+    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
+    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
     { regex: /((?<=@if|@for|@switch|@defer|@loading|@placeholder|@error)\s*)(\()/g, class: 'nexus-control' },
     { regex: /(\)\s*\{)/g, class: 'nexus-control' },
     { regex: /([\{\}])/g, class: 'nexus-control' },
     { regex: /\b(as|let|track|of)\b/g, class: 'nexus-control' },
-    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
-    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /((?:\[\(?|(?<!\w)\()[a-zA-Z0-9.-]+(?:\)?\]|\))(?==))/g, class: 'nexus-binding' },
     { regex: /\b([a-zA-Z0-9.-]+)=/g, class: 'nexus-attr' },
     { regex: /(\{\{.*?\}\})/g, class: 'nexus-signal' },
@@ -77,47 +81,43 @@ const nexusScanner = () => {
   const codeLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
   if (codeLines.length === 0) return;
 
-  let inTemplateBlock = false;
-  let lastFileContainer = null;
-
   codeLines.forEach(line => {
+    // Identify file
+    const container = line.closest(FILE_CONTAINER_SELECTORS.join(', '));
+    if (!container) return;
+
+    // Initialize/Retrieve persistent state for this specific file
+    if (!FILE_STATES.has(container)) {
+      FILE_STATES.set(container, { inTemplate: false });
+    }
+    const state = FILE_STATES.get(container);
+
     const text = line.innerText || line.textContent;
     if (!text) return;
 
-    // 1. HARD FILE BOUNDARY: Identify which file this line belongs to
-    const container = line.closest(FILE_CONTAINER_SELECTORS.join(', '));
-    
-    // If we've crossed into a new file container, RESET EVERYTHING
-    if (container !== lastFileContainer) {
-        inTemplateBlock = false;
-        lastFileContainer = container;
-    }
-
-    // 2. LOGIC BOUNDARY: If we see an import or export at the start of a line, 
-    // we are definitely NOT in a template block.
-    const trimmed = text.trim();
-    if (trimmed.startsWith('import ') || trimmed.startsWith('import {') || trimmed.startsWith('export ')) {
-        inTemplateBlock = false;
-        // Don't highlight import lines
-        return;
-    }
-
-    // 3. INCEPTION GUARD
+    // INCEPTION GUARD
     if (text.includes('[Nexus-Eye]') || text.includes('§§§NEXUS')) return;
 
-    // 4. TRIGGERS
+    // TRIGGERS (Run on every line to maintain sync)
     const isStart = text.includes('template:') && (text.includes('`') || text.includes("'") || text.includes('"'));
-    const isEnd = inTemplateBlock && (
+    const isEnd = state.inTemplate && (
         text.includes('@Component') || 
         text.includes('export class') || 
         (text.trim() === '`') || 
         (text.includes('`') && !text.includes('template:'))
     );
+    
+    // Logic Wall: Imports/Exports kill the template state immediately
+    const isLogicWall = /^(import|export)\b/.test(text.trim());
 
-    if (isStart) inTemplateBlock = true;
+    if (isStart) state.inTemplate = true;
+    if (isLogicWall) state.inTemplate = false;
 
-    // 5. ACTION
-    if (inTemplateBlock && !line.dataset.nexusDone) {
+    // ACTION
+    if (state.inTemplate && !line.dataset.nexusDone) {
+        // Noise guard: never highlight logic wall lines
+        if (isLogicWall) return;
+
         const highlighted = highlightEngine(text);
         if (highlighted) {
             line.innerHTML = highlighted;
@@ -126,7 +126,7 @@ const nexusScanner = () => {
         }
     }
 
-    if (isEnd) inTemplateBlock = false;
+    if (isEnd) state.inTemplate = false;
   });
 };
 
