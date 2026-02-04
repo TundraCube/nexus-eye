@@ -1,4 +1,4 @@
-console.log("%c [Nexus-Eye] System Live v1.4.8 (The File-Centric Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.4.9 (Grouped Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 
@@ -36,14 +36,14 @@ const highlightEngine = (text) => {
   processed = processed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const patterns = [
+    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
+    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /(&lt;!--.*?--&gt;)/g, class: 'nexus-comment' },
     { regex: /(@)(if|else if|else|defer|placeholder|loading|error|switch|case|default|for|empty)\b/g, class: 'nexus-control' },
     { regex: /((?<=@if|@for|@switch|@defer|@loading|@placeholder|@error)\s*)(\()/g, class: 'nexus-control' },
     { regex: /(\)\s*\{)/g, class: 'nexus-control' },
     { regex: /([\{\}])/g, class: 'nexus-control' },
     { regex: /\b(as|let|track|of)\b/g, class: 'nexus-control' },
-    { regex: /(&lt;\/?[a-zA-Z0-9-]+)/g, class: 'nexus-tag' },
-    { regex: /(\/\s*&gt;|&gt;)(?!--&gt;)/g, class: 'nexus-tag' },
     { regex: /((?:\[\(?|(?<!\w)\()[a-zA-Z0-9.-]+(?:\)?\]|\))(?==))/g, class: 'nexus-binding' },
     { regex: /\b([a-zA-Z0-9.-]+)=/g, class: 'nexus-attr' },
     { regex: /(\{\{.*?\}\})/g, class: 'nexus-signal' },
@@ -70,25 +70,35 @@ const highlightEngine = (text) => {
 const nexusScanner = () => {
   if (!isEnabled) return;
 
-  // 1. FIND ALL FILE CONTAINERS
-  const containers = document.querySelectorAll(FILE_CONTAINER_SELECTORS.join(', '));
-  
-  containers.forEach(container => {
-    // 2. ISOLATED STATE: Every file starts with a clean slate
+  // 1. Get all code lines on the entire page
+  const allLines = document.querySelectorAll(LINE_SELECTORS.join(', '));
+  if (allLines.length === 0) return;
+
+  // 2. Group lines by their file container
+  const fileGroups = new Map();
+  const containers = FILE_CONTAINER_SELECTORS.join(', ');
+
+  allLines.forEach(line => {
+    const container = line.closest(containers) || document.body;
+    if (!fileGroups.has(container)) {
+      fileGroups.set(container, []);
+    }
+    fileGroups.get(container).push(line);
+  });
+
+  // 3. Process each group independently with an ISOLATED state machine
+  fileGroups.forEach((lines, container) => {
     let inTemplateBlock = false;
-    
-    // 3. PROCESS LINES ONLY WITHIN THIS CONTAINER
-    const codeLines = container.querySelectorAll(LINE_SELECTORS.join(', '));
-    
-    codeLines.forEach(line => {
+
+    lines.forEach(line => {
       const text = line.innerText || line.textContent;
       if (!text) return;
 
-      // Logic Boundary: Imports/Exports kill the state immediately for this file
+      // Noise Guard: Reset state if we see imports or exports at file level
       const trimmed = text.trim();
       if (trimmed.startsWith('import ') || trimmed.startsWith('import {') || trimmed.startsWith('export ')) {
-          inTemplateBlock = false;
-          return;
+        inTemplateBlock = false;
+        return;
       }
 
       // Triggers
