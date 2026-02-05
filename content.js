@@ -1,4 +1,4 @@
-console.log("%c [Nexus-Eye] System Live v1.5.4 (The True Sight Engine) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.5.5 (Absolute Isolation) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 const FILE_STATE_MAP = new Map();
@@ -101,10 +101,16 @@ const nexusScanner = () => {
     const text = line.innerText || line.textContent;
     if (!text) return;
 
-    // 1. INCEPTION GUARD: Skip if this is our own logic or a non-angular file
-    const lowerText = text.toLowerCase();
-    if (text.includes('§§§NEXUS') || (text.includes('highlightEngine') && text.includes('regex'))) {
+    // 1. IMPROVED INCEPTION SHIELD: Pre-emptively kill highlighting for extension source
+    // We look for definitive non-Angular, extension-specific keywords
+    if (text.includes('§§§NEXUS') || 
+        text.includes('[Nexus-Eye]') || 
+        text.includes('chrome.storage') || 
+        text.includes('MutationObserver') ||
+        text.includes('highlightEngine') ||
+        text.includes('LINE_SELECTORS')) {
         state.skipFile = true;
+        state.inTemplate = false;
         return;
     }
 
@@ -118,8 +124,6 @@ const nexusScanner = () => {
     );
     const isLogicWall = /^(import|export)\b/.test(text.trim());
     
-    // 3. TRUE SIGHT HEURISTIC: Discover template mode in partial hunks
-    // Look for clear HTML tags at start of line or Angular patterns
     const looksLikeTemplate = /^\s*<[a-zA-Z0-9-]+/.test(text) || /^\s*<\/[a-zA-Z0-9-]+/.test(text) || /\[[a-zA-Z0-9.-]+\]=|\{\{.*?\}\}|@(if|for|else)\b/.test(text);
 
     if (isStart || (!state.inTemplate && looksLikeTemplate && !isLogicWall)) {
@@ -128,7 +132,7 @@ const nexusScanner = () => {
 
     if (isLogicWall && !looksLikeTemplate) state.inTemplate = false;
 
-    // 4. ACTION
+    // 3. ACTION
     if (state.inTemplate && !line.dataset.nexusDone) {
         if (isLogicWall && !looksLikeTemplate) return;
 
