@@ -1,4 +1,4 @@
-console.log("%c [Nexus-Eye] System Live v1.5.5 (Absolute Isolation) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
+console.log("%c [Nexus-Eye] System Live v1.3.0 (Absolute Isolation) ", "background: #1e293b; color: #34d399; font-weight: bold; border: 1px solid #34d399; padding: 2px 5px;");
 
 let isEnabled = true;
 const FILE_STATE_MAP = new Map();
